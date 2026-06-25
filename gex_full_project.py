@@ -116,31 +116,51 @@ class GEXAnalysisApp(QMainWindow):
 
     def read_csv(self, file_name):
         data = []
-        with open(file_name, 'r') as file:
+
+        def parse_float(value):
+            value = (value or "").strip().replace(",", "")
+            return float(value) if value else 0.0
+
+        def parse_int(value):
+            value = (value or "").strip().replace(",", "")
+            return int(float(value)) if value else 0
+
+        with open(file_name, 'r', encoding='utf-8-sig', newline='') as file:
             csv_reader = csv.reader(file)
-            for _ in range(3):  # Skip the first 3 rows
-                next(csv_reader)
-            headers = next(csv_reader)
-        
-        # Determine index positions based on new headers
-            exp_date_idx = headers.index("Expiration Date")
-            call_gamma_idx = headers.index("Gamma", 9)  # "Gamma" for calls in column J
-            call_oi_idx = headers.index("Open Interest", 10)  # "Open Intrest" for calls in column K
-            strike_idx = headers.index("Strike", 11)  # "Strikes" in column L
-            put_gamma_idx = headers.index("Gamma", 20)  # "Gamma" for puts in column U
-            put_oi_idx = headers.index("Open Interest", 21)  # "Open Intrest" for puts in column V
-        
+            headers = None
+
             for row in csv_reader:
-                # Extract the required data from each row
-                expiration = row[exp_date_idx]
-                call_gamma = row[call_gamma_idx]
-                call_oi = row[call_oi_idx]
-                strike = row[strike_idx]
-                put_gamma = row[put_gamma_idx]
-                put_oi = row[put_oi_idx]
-            
-                # Append the extracted data into a list
-                data.append([expiration, call_gamma, call_oi, strike, put_gamma, put_oi])
+                if not row or not any(cell.strip() for cell in row):
+                    continue
+
+                if headers is None:
+                    if "Expiration Date" in row:
+                        headers = row
+                    continue
+
+                exp_date_idx = headers.index("Expiration Date")
+                call_gamma_idx = headers.index("Gamma", 9)
+                call_oi_idx = headers.index("Open Interest", 10)
+                strike_idx = headers.index("Strike", 11)
+                put_gamma_idx = headers.index("Gamma", 20)
+                put_oi_idx = headers.index("Open Interest", 21)
+
+                expiration = row[exp_date_idx] if exp_date_idx < len(row) else ""
+                call_gamma = row[call_gamma_idx] if call_gamma_idx < len(row) else ""
+                call_oi = row[call_oi_idx] if call_oi_idx < len(row) else ""
+                strike = row[strike_idx] if strike_idx < len(row) else ""
+                put_gamma = row[put_gamma_idx] if put_gamma_idx < len(row) else ""
+                put_oi = row[put_oi_idx] if put_oi_idx < len(row) else ""
+
+                data.append([
+                    expiration,
+                    str(parse_float(call_gamma)),
+                    str(parse_int(call_oi)),
+                    str(parse_float(strike)),
+                    str(parse_float(put_gamma)),
+                    str(parse_int(put_oi)),
+                ])
+
         return data
 
 
@@ -159,8 +179,30 @@ class GEXAnalysisApp(QMainWindow):
                 checkbox.setChecked(True)
                 self.expiration_layout.addWidget(checkbox)
 
+    def get_spot_price(self):
+        value = self.spot_price_input.text().strip().replace(",", "")
+        if not value:
+            return None
+        try:
+            return float(value)
+        except ValueError:
+            return None
+
     def update_table(self):
-        spot_price = float(self.spot_price_input.text())
+        if not hasattr(self, "data") or not self.data:
+            self.table.setRowCount(0)
+            return
+
+        spot_price = self.get_spot_price()
+        if spot_price is None:
+            self.table.setRowCount(0)
+            self.max_pain_label.setText("Max Pain: N/A")
+            self.max_pain_comparison_label.setText("Comparison: N/A")
+            self.put_call_ratio_label.setText("Put/Call Ratio: N/A")
+            self.net_positive_gamma_label.setText("Net Positive Gamma: N/A")
+            self.net_negative_gamma_label.setText("Net Negative Gamma: N/A")
+            return
+
         selected_expirations = [cb.text() for cb in self.expiration_group.findChildren(QCheckBox) if cb.isChecked()]
         filtered_data = [row for row in self.data if row[0] in selected_expirations]
         gex_data = self.calculate_gex(filtered_data, spot_price)
